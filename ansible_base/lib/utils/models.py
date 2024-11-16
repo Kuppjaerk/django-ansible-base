@@ -1,8 +1,9 @@
 from __future__ import annotations
+
 import logging
 from dataclasses import asdict, dataclass
 from itertools import chain
-from typing import Optional
+from typing import TYPE_CHECKING, Optional
 
 from crum import get_current_user
 from django.conf import settings
@@ -16,6 +17,10 @@ from ansible_base.lib.utils.encryption import ENCRYPTED_STRING
 from ansible_base.lib.utils.string import make_json_safe
 
 logger = logging.getLogger('ansible_base.lib.utils.models')
+
+# Handle type hints of AbstractUser during linting
+if TYPE_CHECKING:
+    from django.contrib.auth.models import AbstractUser
 
 
 def get_all_field_names(model, concrete_only=False, include_attnames=True):
