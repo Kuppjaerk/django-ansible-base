@@ -90,7 +90,7 @@ def test_authenticators_cli_initialize(django_user_model):
 
     with pytest.raises(CommandError) as e:
         call_command('authenticators', "--initialize", stdout=out, stderr=err)
-    assert "Admin user with username 'admin' not defined." in str(e.getvalue())
+    assert "Admin user with username 'admin' not defined." in str(e.value)
 
     django_user_model.objects.create(username="admin")
     call_command('authenticators', "--initialize", stdout=out, stderr=err)
