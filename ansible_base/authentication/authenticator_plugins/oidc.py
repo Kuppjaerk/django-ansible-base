@@ -39,7 +39,7 @@ class OpenIdConnectConfiguration(BaseAuthenticatorConfiguration):
     #################################
 
     OIDC_ENDPOINT = URLField(
-        help_text=_("The URL for your OIDC provider including the path up to /.well-known/openid-configuration"),
+        help_text=_("The URL for your OIDC provider including the path up to /.well-known/openid-configuration."),
         allow_null=False,
         ui_field_label=_('OIDC Provider URL'),
     )
@@ -122,7 +122,7 @@ class OpenIdConnectConfiguration(BaseAuthenticatorConfiguration):
     )
 
     JWT_DECODE_OPTIONS = DictField(
-        help_text=_("OIDC JWT decoding options for token validation and processing"),
+        help_text=_("OIDC JWT decoding options for token validation and processing."),
         default=None,
         allow_null=True,
         ui_field_label=_('OIDC JWT Decode Options.'),
@@ -165,7 +165,7 @@ class OpenIdConnectConfiguration(BaseAuthenticatorConfiguration):
     )
 
     RESPONSE_TYPE = CharField(
-        help_text=_("The reponse type the OIDC endpoint should return. Common values are 'code', 'id_token' and 'token'."),
+        help_text=_("The response type the OIDC endpoint should return. Common values are 'code', 'id_token' and 'token'."),
         default="code",
         allow_null=True,
         ui_field_label=_("Response Type"),
@@ -201,6 +201,14 @@ class OpenIdConnectConfiguration(BaseAuthenticatorConfiguration):
         ui_field_label=_("Username Key"),
     )
 
+    GROUPS_CLAIM = CharField(
+        help_text=_("The JSON key used to extract the user's groups from the ID token or userinfo endpoint."),
+        required=False,
+        allow_null=True,
+        default="Group",
+        ui_field_label=_("Groups Claim"),
+    )
+
 
 class AuthenticatorPlugin(SocialAuthMixin, OpenIdConnectAuth, AbstractAuthenticatorPlugin):
     configuration_class = OpenIdConnectConfiguration
@@ -208,6 +216,10 @@ class AuthenticatorPlugin(SocialAuthMixin, OpenIdConnectAuth, AbstractAuthentica
     logger = logger
     category = "sso"
     configuration_encrypted_fields = ['SECRET']
+
+    @property
+    def groups_claim(self):
+        return self.setting('GROUPS_CLAIM')
 
     def extra_data(self, user, backend, response, *args, **kwargs):
         for perm in ["is_superuser", get_setting('ANSIBLE_BASE_SOCIAL_AUDITOR_FLAG')]:

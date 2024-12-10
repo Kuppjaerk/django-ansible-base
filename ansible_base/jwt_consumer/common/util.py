@@ -1,11 +1,13 @@
 import logging
 import time
+from base64 import b64encode
 
 from cryptography.exceptions import InvalidSignature
 from cryptography.hazmat.primitives import hashes, serialization
 from cryptography.hazmat.primitives.asymmetric import padding
 
 from ansible_base.jwt_consumer.common.cert import JWTCert, JWTCertException
+from ansible_base.lib.utils.settings import get_setting
 
 logger = logging.getLogger('ansible_base.jwt_consumer.common.util')
 
@@ -42,9 +44,24 @@ def validate_x_trusted_proxy_header(header_value: str, ignore_cache=False) -> bo
         logger.warning("Failed to validate x-trusted-proxy-header, malformed, expected value to contain a -")
         return False
 
+    # Validate that the header has been cut within the last 300ms (by default)
+    try:
+        if time.time_ns() - int(timestamp) > get_setting('trusted_header_timeout_in_ns', 300000000):
+            logger.warning(f"Timestamp {timestamp} was too old to be valid alter trusted_header_timeout_in_ns if needed")
+            return False
+    except ValueError:
+        logger.warning(f"Unable to convert timestamp (base64) {b64encode(timestamp.encode('UTF-8'))} into an integer")
+        return False
+
+    try:
+        signature_bytes = bytes.fromhex(signature)
+    except ValueError:
+        logger.warning("Failed to validate x-trusted-proxy-header, malformed, expected signature to well-formed base64")
+        return False
+
     try:
         public_key.verify(
-            bytes.fromhex(signature),
+            signature_bytes,
             bytes(f'{_SHARED_SECRET}-{timestamp}', 'utf-8'),
             padding.PSS(mgf=padding.MGF1(hashes.SHA256()), salt_length=padding.PSS.MAX_LENGTH),
             hashes.SHA256(),

@@ -1,4 +1,3 @@
-import os
 import random
 import re
 from collections import defaultdict
@@ -10,7 +9,6 @@ import pytest
 from cryptography.hazmat.backends import default_backend
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric import rsa
-from django.apps import apps
 from django.conf import settings
 from django.contrib.contenttypes.models import ContentType
 from django.db.migrations.recorder import MigrationRecorder
@@ -26,6 +24,7 @@ from ansible_base.lib.testing.util import copy_fixture, delete_authenticator
 from ansible_base.oauth2_provider.fixtures import *  # noqa: F403, F401
 from ansible_base.rbac import permission_registry
 from ansible_base.rbac.models import RoleDefinition
+from ansible_base.resource_registry.models.service_identifier import service_id
 from test_app import models
 
 
@@ -38,12 +37,14 @@ def openapi_schema():
     return generator.get_schema(request=drf_request)
 
 
-def test_migrations_okay(*args, **kwargs):
+def test_migrations_okay(apps=None, app_config=None, **kwargs):
     """This test is not about the code, but for verifying your own state.
 
     If you are not migrated to the correct state, this may hopefully alert you.
     This is targeted toward situations like switching branches.
     """
+    if (not apps) or (not app_config) or app_config.label != 'test_app':
+        return  # so that it is only ran once
     disk_steps = defaultdict(set)
     app_exceptions = {'default': 'auth', 'social_auth': 'social_django'}
     for app in MigrationRecorder.Migration.objects.values_list('app', flat=True).distinct():
@@ -53,15 +54,29 @@ def test_migrations_okay(*args, **kwargs):
             app_config = apps.get_app_config(app)
         except LookupError:
             raise RuntimeError(f'App {app} is present in the recorded migrations but not installed, perhaps you need --create-db?')
-        for path in os.listdir(os.path.join(app_config.path, 'migrations')):
-            if re.match(r'^\d{4}_.*.py$', path):
-                disk_steps[app].add(path.rsplit('.')[0])
+
+        if (not hasattr(app_config, 'module')) or (not hasattr(app_config.module, 'migrations')):
+            continue  # might catch a stub app
+
+        migration_module = app_config.module.migrations
+        for step in dir(migration_module):
+            if not re.match(r'\d{4}_', step):
+                continue
+            step_module = getattr(migration_module, step)
+            migration_name = step_module.__name__.rsplit('.')[-1]
+            disk_steps[app].add(migration_name)
+
+            migration_cls = step_module.Migration
+            for replaces_app_name, replaces_migration_name in getattr(migration_cls, 'replaces', []):
+                disk_steps[app].add(replaces_migration_name)
+
     db_steps = defaultdict(set)
     for record in MigrationRecorder.Migration.objects.only('app', 'name'):
         if record.app in app_exceptions:
             continue
         app_name = app_exceptions.get(record.app, record.app)
         db_steps[app_name].add(record.name)
+
     for app in disk_steps:
         assert disk_steps[app] == db_steps[app], f'Migrations not expected for app {app}, perhaps you need --create-db?'
 
@@ -464,6 +479,7 @@ def local_authenticator_map(db, local_authenticator, user, randname):
         triggers={"always": {}},
         organization="testorg",
         team="testteam",
+        enabled=True,
     )
     return authenticator_map
 
@@ -517,6 +533,7 @@ def jwt_token(test_encryption_private_key):
                 "exp": int(expiration_date.timestamp()),
                 "aud": "ansible-services",
                 "sub": "1e3de989-5286-48a6-83d4-5de9a6618ffd",
+                "service_id": service_id(),
                 "user_data": {
                     "username": "john.westcott.iv",
                     "first_name": "john",

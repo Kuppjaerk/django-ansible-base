@@ -30,9 +30,20 @@ logger = logging.getLogger('ansible_base.rbac.models')
 class DABPermission(models.Model):
     "This is a minimal copy of auth.Permission for internal use"
 
-    name = models.CharField("name", max_length=255)
-    content_type = models.ForeignKey(ContentType, models.CASCADE, verbose_name="content type")
-    codename = models.CharField("codename", max_length=100)
+    name = models.CharField("name", max_length=255, help_text=_("The name of this permission."))
+    content_type = models.ForeignKey(ContentType, models.CASCADE, verbose_name="content type", help_text=_("The content type this permission will apply to."))
+    codename = models.CharField(
+        "codename",
+        max_length=100,
+        help_text=_(
+            "".join(
+                [
+                    "A codename for the permission, in the format {action}_{model_name}. ",
+                    "Where action is typically the view set action (view/list/etc) from Django rest framework.",
+                ]
+            )
+        ),
+    )
 
     class Meta:
         app_label = 'dab_rbac'
@@ -155,13 +166,15 @@ class RoleDefinition(CommonModel):
         ordering = ['id']
         verbose_name_plural = _('role_definition')
 
-    name = models.TextField(db_index=True, unique=True)
-    description = models.TextField(blank=True)
-    managed = models.BooleanField(default=False, editable=False)  # pulp definition of Role uses locked
+    name = models.TextField(db_index=True, unique=True, help_text=_("The name of this role."))
+    description = models.TextField(blank=True, help_text=_("A description of this role."))
+    managed = models.BooleanField(
+        default=False, editable=False, help_text=_("Is this role managed by the system (not changeable by the users).")
+    )  # pulp definition of Role uses locked
     permissions = models.ManyToManyField('dab_rbac.DABPermission', related_name='role_definitions')
     content_type = models.ForeignKey(
         ContentType,
-        help_text=_('Type of resource this can apply to, only used for validation and user assistance'),
+        help_text=_('The type of resource this can apply to; only used for validation and user assistance.'),
         null=True,
         default=None,
         on_delete=models.CASCADE,
@@ -330,8 +343,10 @@ class ObjectRoleFields(models.Model):
         abstract = True
 
     # role_definition set on child models to set appropriate help_text and related_name
-    content_type = models.ForeignKey(ContentType, on_delete=models.CASCADE)
-    object_id = models.TextField(null=False)
+    content_type = models.ForeignKey(
+        ContentType, on_delete=models.CASCADE, help_text=_("The content type of the subject of permission assignments. Duplicated from related RoleDefinition.")
+    )
+    object_id = models.TextField(null=False, help_text=_("The database primary key of the subject of permission assignments."))
     content_object = GenericForeignKey('content_type', 'object_id')
 
     @classmethod
@@ -375,11 +390,13 @@ class AssignmentBase(ImmutableCommonModel, ObjectRoleFields):
     both models are immutable, making caching easy.
     """
 
-    object_role = models.ForeignKey('dab_rbac.ObjectRole', on_delete=models.CASCADE, editable=False, null=True)
-    object_id = models.TextField(
-        null=True, blank=True, help_text=_('Primary key of the object this assignment applies to, null value indicates system-wide assignment')
+    object_role = models.ForeignKey(
+        'dab_rbac.ObjectRole', on_delete=models.CASCADE, editable=False, null=True, help_text=_("A roll-up of the fields (role_definition, content_type).")
     )
-    content_type = models.ForeignKey(ContentType, on_delete=models.CASCADE, null=True)
+    object_id = models.TextField(
+        null=True, blank=True, help_text=_('The primary key of the object this assignment applies to; null value indicates system-wide assignment.')
+    )
+    content_type = models.ForeignKey(ContentType, on_delete=models.CASCADE, null=True, help_text=_("The content type this applies to."))
 
     # object_role is internal, and not shown in serializer
     # content_type does not have a link, and ResourceType will be used in lieu sometime
@@ -389,24 +406,26 @@ class AssignmentBase(ImmutableCommonModel, ObjectRoleFields):
         app_label = 'dab_rbac'
         abstract = True
 
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
-
-        # Cache fields from the associated object_role
-        if self.object_role_id and not self.object_id:
-            self.object_id = self.object_role.object_id
-            self.content_type_id = self.object_role.content_type_id
-            self.role_definition_id = self.object_role.role_definition_id
+    def save(self, *args, **kwargs):
+        if not self.id:  # usually only new objects can be saved, but super needs to do error handling
+            if self.object_role_id and (not self.object_id):
+                # Cache fields from the associated object_role
+                self.object_id = self.object_role.object_id
+                self.content_type_id = self.object_role.content_type_id
+                self.role_definition_id = self.object_role.role_definition_id
+        return super().save(*args, **kwargs)
 
 
 class RoleUserAssignment(AssignmentBase):
     role_definition = models.ForeignKey(
         RoleDefinition,
         on_delete=models.CASCADE,
-        help_text=_("The role definition which defines permissions conveyed by this assignment"),
+        help_text=_("The role definition which defines permissions conveyed by this assignment."),
         related_name='user_assignments',
     )
-    user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name='role_assignments')
+    user = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name='role_assignments', help_text=_("The user this role is assigned to.")
+    )
     router_basename = 'roleuserassignment'
 
     class Meta:
@@ -427,10 +446,12 @@ class RoleTeamAssignment(AssignmentBase):
     role_definition = models.ForeignKey(
         RoleDefinition,
         on_delete=models.CASCADE,
-        help_text=_("The role definition which defines permissions conveyed by this assignment"),
+        help_text=_("The role definition which defines permissions conveyed by this assignment."),
         related_name='team_assignments',
     )
-    team = models.ForeignKey(settings.ANSIBLE_BASE_TEAM_MODEL, on_delete=models.CASCADE, related_name='role_assignments')
+    team = models.ForeignKey(
+        settings.ANSIBLE_BASE_TEAM_MODEL, on_delete=models.CASCADE, related_name='role_assignments', help_text=_("The team that receives permissions.")
+    )
     router_basename = 'roleteamassignment'
 
     class Meta:
@@ -468,7 +489,7 @@ class ObjectRole(ObjectRoleFields):
     role_definition = models.ForeignKey(
         RoleDefinition,
         on_delete=models.CASCADE,
-        help_text=_("The role definition which defines what permissions this object role grants"),
+        help_text=_("The role definition which defines what permissions this object role grants."),
         related_name='object_roles',
     )
     users = models.ManyToManyField(
@@ -476,21 +497,21 @@ class ObjectRole(ObjectRoleFields):
         through='dab_rbac.RoleUserAssignment',
         through_fields=("object_role", "user"),
         related_name='has_roles',
-        help_text=_("Users who have access to the permissions defined by this object role"),
+        help_text=_("Users who have access to the permissions defined by this object role."),
     )
     teams = models.ManyToManyField(
         to=settings.ANSIBLE_BASE_TEAM_MODEL,
         through='dab_rbac.RoleTeamAssignment',
         through_fields=("object_role", "team"),
         related_name='has_roles',
-        help_text=_("Teams or groups who have access to the permissions defined by this object role"),
+        help_text=_("Teams or groups who have access to the permissions defined by this object role."),
     )
     # COMPUTED DATA
     provides_teams = models.ManyToManyField(
         settings.ANSIBLE_BASE_TEAM_MODEL,
         related_name='member_roles',
         editable=False,
-        help_text=_("Users who have this role obtain member access to these teams, and inherit all their permissions"),
+        help_text=_("Users who have this role obtain member access to these teams, and inherit all their permissions."),
     )
 
     def __str__(self):
@@ -638,10 +659,10 @@ class RoleEvaluationFields(models.Model):
             raise RuntimeError(f'{self._meta.model_name} model is immutable and only used internally')
         return super().save(*args, **kwargs)
 
-    codename = models.TextField(null=False, help_text=_("The name of the permission, giving the action and the model, from the Django Permission model"))
+    codename = models.TextField(null=False, help_text=_("The name of the permission, giving the action and the model, from the Django Permission model."))
     # NOTE: we do not form object_id and content_type into a content_object, following from AWX practice
     # this can be relaxed as we have comparative performance testing to confirm doing so does not affect permissions
-    content_type_id = models.PositiveIntegerField(null=False)
+    content_type_id = models.PositiveIntegerField(null=False, help_text=_("The related content type id."))
 
     def obj_perm_id(self):
         "Used for in-memory hashing of the type of object permission this represents"
@@ -703,9 +724,13 @@ class RoleEvaluation(RoleEvaluationFields):
         pass
 
     role = models.ForeignKey(
-        ObjectRole, null=False, on_delete=models.CASCADE, related_name='permission_partials', help_text=_("The object role that grants this form of permission")
+        ObjectRole,
+        null=False,
+        on_delete=models.CASCADE,
+        related_name='permission_partials',
+        help_text=_("The object role that grants this form of permission."),
     )
-    object_id = models.PositiveIntegerField(null=False)
+    object_id = models.PositiveIntegerField(null=False, help_text=_("The id of the object that the related role gives the related permission to."))
 
 
 class RoleEvaluationUUID(RoleEvaluationFields):
@@ -721,9 +746,9 @@ class RoleEvaluationUUID(RoleEvaluationFields):
         null=False,
         on_delete=models.CASCADE,
         related_name='permission_partials_uuid',
-        help_text=_("The object role that grants this form of permission"),
+        help_text=_("The object role that grants this form of permission."),
     )
-    object_id = models.UUIDField(null=False)
+    object_id = models.UUIDField(null=False, help_text=_("The object UUID this role evaluation will be applied to."))
 
 
 def get_evaluation_model(cls):

@@ -13,6 +13,7 @@ from rest_framework.exceptions import AuthenticationFailed
 
 from ansible_base.jwt_consumer.common.cache import JWTCache
 from ansible_base.jwt_consumer.common.cert import JWTCert, JWTCertException
+from ansible_base.lib.logging.runtime import log_excess_runtime
 from ansible_base.lib.utils.auth import get_user_by_ansible_id
 from ansible_base.lib.utils.translations import translatableConditionally as _
 from ansible_base.resource_registry.models import Resource, ResourceType
@@ -50,6 +51,7 @@ class JWTCommonAuth:
         self.user = None
         self.token = None
 
+    @log_excess_runtime(logger, debug_cutoff=0.01)
     def parse_jwt_token(self, request):
         """
         parses the given request setting self.user and self.token
@@ -64,7 +66,7 @@ class JWTCommonAuth:
 
         token_from_header = request.headers.get("X-DAB-JW-TOKEN", None)
         if not token_from_header:
-            logger.info("X-DAB-JW-TOKEN header not set for JWT authentication")
+            logger.debug("X-DAB-JW-TOKEN header not set for JWT authentication")
             return
         logger.debug(f"Received JWT auth token: {token_from_header}")
 
@@ -113,10 +115,14 @@ class JWTCommonAuth:
 
         if not self.user:
             # Either the user wasn't cached or the requested user was not in the DB so we need to make a new one
+            resource_kwargs = {}
+            for resource_key, token_key in (('resource_data', 'user_data'), ('ansible_id', 'sub'), ('service_id', 'service_id')):
+                if token_key not in self.token:
+                    logger.warning(f'Missing {token_key} in JWT data, omitting {resource_key} from local resource entry')
+                else:
+                    resource_kwargs[resource_key] = self.token[token_key]
             try:
-                resource = Resource.create_resource(
-                    ResourceType.objects.get(name="shared.user"), resource_data=self.token["user_data"], ansible_id=self.token["sub"]
-                )
+                resource = Resource.create_resource(ResourceType.objects.get(name="shared.user"), **resource_kwargs)
                 self.user = resource.content_object
                 logger.info(f"New user {self.user.username} created from JWT auth")
             except IntegrityError as exc:

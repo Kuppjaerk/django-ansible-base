@@ -1,3 +1,5 @@
+import hashlib
+
 import oauth2_provider.models as oauth2_models
 from django.conf import settings
 from django.core.exceptions import ValidationError
@@ -7,6 +9,7 @@ from django.utils.translation import gettext_lazy as _
 from oauthlib import oauth2
 
 from ansible_base.lib.abstract_models.common import CommonModel
+from ansible_base.lib.utils.hashing import hash_string
 from ansible_base.lib.utils.models import prevent_search
 from ansible_base.lib.utils.settings import get_setting
 from ansible_base.oauth2_provider.utils import is_external_account
@@ -46,7 +49,7 @@ class OAuth2AccessToken(CommonModel, oauth2_models.AbstractAccessToken, activity
         blank=True,
         null=True,
         related_name="access_tokens",
-        help_text=_('The user representing the token owner'),
+        help_text=_('The user representing the token owner.'),
     )
     # Overriding to set related_name
     application = models.ForeignKey(
@@ -55,28 +58,17 @@ class OAuth2AccessToken(CommonModel, oauth2_models.AbstractAccessToken, activity
         blank=True,
         null=True,
         related_name='access_tokens',
+        help_text=_('The related application. If None, this is a user token instead of an application token.'),
     )
-    description = models.TextField(
-        default='',
-        blank=True,
-    )
-    last_used = models.DateTimeField(
-        null=True,
-        default=None,
-        editable=False,
-    )
+    description = models.TextField(default='', blank=True, help_text=_('A description for this token.'))
+    last_used = models.DateTimeField(null=True, default=None, editable=False, help_text=_('A timestamp of when this token was last used.'))
     scope = models.CharField(
         default='write',
         max_length=32,
-        help_text=_("Allowed scopes, further restricts user's permissions. Must be a simple space-separated string with allowed scopes ['read', 'write']."),
+        help_text=_("Allowed scopes, further restricts user permissions. Must be a simple space-separated string with allowed scopes ['read', 'write']."),
         validators=[validate_scope],
     )
-    token = prevent_search(
-        models.CharField(
-            max_length=255,
-            unique=True,
-        )
-    )
+    token = prevent_search(models.CharField(max_length=255, unique=True, help_text=_("The generated token value.")))
     updated = None  # Tracked in CommonModel with 'modified', no need for this
 
     def is_valid(self, scopes=None):
@@ -103,4 +95,5 @@ class OAuth2AccessToken(CommonModel, oauth2_models.AbstractAccessToken, activity
     def save(self, *args, **kwargs):
         if not self.pk:
             self.validate_external_users()
+            self.token = hash_string(self.token, hasher=hashlib.sha256, algo="sha256")
         super().save(*args, **kwargs)

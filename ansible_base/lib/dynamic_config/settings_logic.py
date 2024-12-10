@@ -223,6 +223,9 @@ def get_dab_settings(
 
         dab_data['MANAGE_ORGANIZATION_AUTH'] = True
 
+        # Alternative to permission_registry.register
+        dab_data['ANSIBLE_BASE_RBAC_MODEL_REGISTRY'] = {}
+
         dab_data['ORG_ADMINS_CAN_SEE_ALL_USERS'] = True
 
     if 'ansible_base.resource_registry' in installed_apps:
@@ -282,6 +285,8 @@ def get_dab_settings(
         dab_data['OAUTH2_PROVIDER_ID_TOKEN_MODEL'] = "dab_oauth2_provider.OAuth2IDToken"
 
         dab_data['ALLOW_OAUTH2_FOR_EXTERNAL_USERS'] = False
+
+        dab_data['ANSIBLE_BASE_OAUTH2_PROVIDER_PERMISSIONS_CHECK_DEFAULT_IGNORED_VIEWS'] = []
 
     if caches is not None:
         dab_data['CACHES'] = copy(caches)
